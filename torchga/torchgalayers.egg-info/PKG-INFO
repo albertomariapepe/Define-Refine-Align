@@ -1,0 +1,23 @@
+Metadata-Version: 2.1
+Name: torchgalayers
+Version: 0.1.1
+Summary: clifford algebra neural layers in pytorch
+Home-page: https://github.com/albertomariapepe/Torch-GA
+Author: Alberto Maria Pepe
+Author-email: ap2219@cam.ac.uk
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+
+# Torch-GA: building Geometric Algebra Networks in PyTorch
+<p align="center">
+  <img src="https://github.com/albertomariapepe/Torch-GA/blob/main/logo.tiff?raw=true" width="250" height="250">
+</p>
+
+Python package for Geometric / Clifford Algebra in PyTorch, adapted from [Tensorflow GA](https://github.com/RobinKa/tfga).
+
+This project allows to build basic some layers in Geometric / Clifford Algebra in **any Algebra**. 
+
+You are more than welcome to expand and contribute with new type of layers.
