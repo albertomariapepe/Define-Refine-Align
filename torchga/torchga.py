@@ -505,14 +505,14 @@ class GeometricAlgebra:
         #blade_indices  = self.from_tensor(blade_indices)
 
         #print(blade_indices.shape)
-
+        #a = a.unsqueeze(dim = 1)
         shape_of_a = a.shape  # Get shape (B, N, M)
-        blade_indices_expanded = blade_indices.unsqueeze(-1)
-        blade_indices_expanded = blade_indices_expanded.expand(shape_of_a) 
+        #blade_indices_expanded = blade_indices.unsqueeze(-1)
+
+        blade_indices_expanded = blade_indices.expand(shape_of_a) 
 
 
-        #print(blade_indices_expanded.shape)
-        #print(a.shape)  
+          
         
         result = torch.gather(a, dim=-1, index=blade_indices_expanded)
 
