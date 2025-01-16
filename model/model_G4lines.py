@@ -333,19 +333,23 @@ class PluckerNetRegression(nn.Module):
         self.linear = nn.Sequential(*self.linear)
         self.pooling = Pooling('max')
 
-    def create_pose(self, vector):
-        # Normalize the quaternion.
-        pre_normalized_quaternion = vector[:, 0:4]
-        normalized_quaternion = F.normalize(pre_normalized_quaternion, dim=1)
+    def create_pose(self, M):
+        # Normalize the motor
 
-        # make the first element large than zeros
-        sel = (normalized_quaternion[:, 0] < 0.0).float().view(-1, 1)
-        Quat_est = (1.0 - sel) * normalized_quaternion - sel * normalized_quaternion
-        # B x 7 vector of 4 quaternions and 3 translation parameters
-        translation = vector[:, 4:]
-        vector = torch.cat([Quat_est, translation], dim=1)
+        ga = GeometricAlgebra([1, 1, 1, 1])
+        columns_to_select = [0, 5, 6, 7, 8, 9, 10, 15]
+        even_indices = torch.tensor(columns_to_select)
+        
 
-        return vector.view([-1, 7])
+        M = ga.from_tensor(M, blade_indices=even_indices)
+        Minv = ga.reversion(M)
+
+        scalar = (ga.geom_prod(M, Minv))[:,0]
+
+        M = M[:, columns_to_select]
+        M = M / torch.sqrt(scalar.view(-1, 1) + 1e-8)
+
+        return M.view([-1, 8])
 
 
     def forward(self, plucker1, plucker2, r = None, c = None):
@@ -356,7 +360,7 @@ class PluckerNetRegression(nn.Module):
         plucker1_feats, plucker2_feats = self.pooling(plucker1_feats), self.pooling(plucker2_feats)
         plucker_feats_cat = torch.cat([plucker1_feats, plucker2_feats], dim=1)
         pose = self.linear(plucker_feats_cat)
-        #pose = self.create_pose(pose)
+        pose = self.create_pose(pose)
         #print(pose.shape, flush = True)
         return pose
 
