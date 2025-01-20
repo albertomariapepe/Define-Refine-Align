@@ -365,108 +365,94 @@ class PluckerNetRegression(nn.Module):
         return pose
 
 
-class FeatureExtractorG4(nn.Module):
-    def __init__(self):
-        super(FeatureExtractorG4, self).__init__()
-
-        self.ga = GeometricAlgebra([1,1,1,1])
-
-        self.gelu = nn.GELU()
-
-        self.biv_indices = torch.tensor([5, 6, 7, 8, 9, 10])
-        self.even_indices = torch.tensor([0, 5, 6, 7, 8, 9, 10, 15])
-        self.grade_0_4_indices = torch.tensor([0, 15])
 
 
-        self.conv1 = GeometricSandwichProductDense(self.ga, 1, 4, blade_indices_kernel=self.even_indices, blade_indices_bias=self.biv_indices)
 
-        self.conv2 = GeometricSandwichProductDense(self.ga, 4, 8, blade_indices_kernel=self.even_indices, blade_indices_bias=self.biv_indices)
+class PoolingGA(torch.nn.Module):
+    def __init__(self, pool_type='max'):
+            self.pool_type = pool_type
+            super(PoolingGA, self).__init__()
 
-        self.conv3 = GeometricSandwichProductDense(self.ga, 8, 16, blade_indices_kernel=self.even_indices, blade_indices_bias=self.biv_indices)
-
-
-    def forward(self, x):
-
-        x = self.gelu(self.conv1(x))
-        x = self.gelu(self.conv2(x))
-        out = self.conv3(x)
-
-        return out
-
-
-class PoseMergerG4(nn.Module):
-    def __init__(self):
-        super(PoseMergerG4, self).__init__()
-
-        self.ga = GeometricAlgebra([1,1,1,1])
-
-        self.biv_indices = torch.tensor([5, 6, 7, 8, 9, 10])
-        self.even_indices = torch.tensor([0, 5, 6, 7, 8, 9, 10, 15])
-
-
-        self.gelu = nn.GELU()
-
-        self.conv1 = GeometricSandwichProductDense(self.ga,16, 8,
-        blade_indices_kernel=self.even_indices,
-        blade_indices_bias=self.even_indices)
-
-        self.conv2 = GeometricSandwichProductDense(self.ga,8, 4,
-        blade_indices_kernel=self.even_indices,
-        blade_indices_bias=self.even_indices)
-
-        self.conv3 =GeometricSandwichProductDense(self.ga, 4, 1,
-        blade_indices_kernel=self.even_indices,
-        blade_indices_bias=self.even_indices)
-
-
-    def forward(self, x):
-
-        x1 = self.gelu(self.conv1(x))
-        x2 = self.gelu(self.conv2(x1))
-        out = self.conv3(x2)
-        return out
-
+    def forward(self, input):
+        if self.pool_type == 'max':
+            return torch.max(input, 1)[0].contiguous()
+        elif self.pool_type == 'avg' or self.pool_type == 'average':
+            return torch.mean(input, 1).contiguous()
+        
 
 class G4LinesRegression(nn.Module):
     def __init__(self, config):
         super(G4LinesRegression, self).__init__()
 
-        '''
         self.config = config
-        self.in_channel = 6  # the number of dimensions for plucker line
-        self.FeatureExtractor = FeatureExtractorGraph(self.config, self.in_channel)
-        self.linear = [nn.Linear(config.net_nchannel*2, config.net_nchannel*2), nn.ReLU(),
-                       nn.Linear(config.net_nchannel*2, config.net_nchannel), nn.ReLU(),
-                       nn.Linear(config.net_nchannel, config.net_nchannel), nn.ReLU(),
-                       nn.Linear(config.net_nchannel, config.net_nchannel // 2), nn.ReLU(),
-                       nn.Linear(config.net_nchannel // 2, config.net_nchannel // 2), nn.ReLU()]
-
-        # quat and trans
-        self.linear.append(nn.Linear(config.net_nchannel // 2, 8))
-        self.linear = nn.Sequential(*self.linear)
-        self.pooling = Pooling('max')
-        '''
-
+        self.in_channel = 6
+    
         self.pooling = Pooling('max')
 
         self.ga = GeometricAlgebra([1,1,1,1])
         self.biv_indices = torch.tensor([5, 6, 7, 8, 9, 10])
         self.even_indices = torch.tensor([0, 5, 6, 7, 8, 9, 10, 15])
+        self.all = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
         
         self.tensor_to_geometric_lines = TensorToGeometric(self.ga, blade_indices=self.biv_indices)
         self.geometric_to_tensor_poses = GeometricToTensor(self.ga, blade_indices=self.even_indices)
 
-        self.feat_ext1 = FeatureExtractorG4()
-        self.feat_ext2 = FeatureExtractorG4()
+        self.FeatureExtractor = FeatureExtractorGraph(self.config, self.in_channel)
 
-        self.sp1 = GeometricSandwichProductDense(self.ga, 16, 16, self.even_indices, self.even_indices)
-        self.sp2 = GeometricSandwichProductDense(self.ga, 16, 8, self.even_indices, self.even_indices)
-        self.sp3 = GeometricSandwichProductDense(self.ga, 8, 8, self.even_indices, self.even_indices)
+        self.do1 = nn.Dropout(p = 0.2)
+        self.do2 = nn.Dropout(p = 0.2)
+        self.do3 = nn.Dropout(p = 0.2)
 
 
-        self.pose_mer = PoseMergerG4()
+        self.sp1 = GeometricSandwichProductDense(self.ga, 128*2, 128*2, 
+                                                 activation = None,
+                                                 blade_indices_kernel=self.even_indices, 
+                                                 blade_indices_bias=self.even_indices)
+        self.sp2 = GeometricSandwichProductDense(self.ga, 128*2, 128, 
+                                                 activation = None,
+                                                 blade_indices_kernel=self.even_indices, 
+                                                 blade_indices_bias=self.even_indices)
+        self.sp3 = GeometricSandwichProductDense(self.ga, 128, 128, 
+                                                 activation = None,
+                                                 blade_indices_kernel=self.even_indices, 
+                                                 blade_indices_bias=self.even_indices)
+        self.sp3 = GeometricSandwichProductDense(self.ga, 128, 64, 
+                                                 activation = None,
+                                                 blade_indices_kernel=self.even_indices, 
+                                                 blade_indices_bias=self.even_indices)
+        self.sp4 = GeometricSandwichProductDense(self.ga, 64, 64,
+                                                 activation = None,
+                                                 blade_indices_kernel=self.even_indices, 
+                                                 blade_indices_bias=self.even_indices)
+        self.sp5 = GeometricSandwichProductDense(self.ga, 64, 32,
+                                                 activation = None, 
+                                                 blade_indices_kernel=self.even_indices, 
+                                                 blade_indices_bias=self.even_indices)
+        self.sp6 = GeometricSandwichProductDense(self.ga, 32, 1,
+                                                 activation = None, 
+                                                 blade_indices_kernel=self.even_indices, 
+                                                 blade_indices_bias=self.even_indices)
 
-        self.act = nn.GELU()
+
+        self.act = nn.Identity()
+    
+    def create_pose(self, M):
+        # Normalize the motor
+
+        ga = GeometricAlgebra([1, 1, 1, 1])
+        columns_to_select = [0, 5, 6, 7, 8, 9, 10, 15]
+        even_indices = torch.tensor(columns_to_select)
+        
+
+        M = ga.from_tensor(M, blade_indices=even_indices)
+        Minv = ga.reversion(M)
+
+        scalar = (ga.geom_prod(M, Minv))[:,0]
+
+        M = M[:, columns_to_select]
+        M = M / torch.sqrt(scalar.view(-1, 1) + 1e-8)
+
+        return M.view([-1, 8])
 
 
     
@@ -474,37 +460,28 @@ class G4LinesRegression(nn.Module):
         # Extract features
 
         #reshape in B x N x c_in x 6
-        lines1 = lines1.unsqueeze(2)
-        lines2 = lines2.unsqueeze(2)
 
-        lines1 = self.tensor_to_geometric_lines(lines1)
-        lines2 = self.tensor_to_geometric_lines(lines2)
+        l1_feats, l2_feats, _, _ = self.FeatureExtractor(lines1.transpose(-2, -1), lines2.transpose(-2, -1))
+        l1_feats, l2_feats = self.pooling(l1_feats), self.pooling(l2_feats)
+        l_feats_cat = torch.cat([l1_feats, l2_feats], dim=1)
 
-        #print(lines1.shape, flush = True)
+        #l_feats_cat = l_feats_cat.unsqueeze(2)
 
-        out1 = self.feat_ext1(lines1)
-        out2 = self.feat_ext2(lines2)
-
-
-        #print(out1.shape, flush = True)
+        l_feats_cat = l_feats_cat.reshape((-1, 128*2, 6))
+        lines_ga = self.tensor_to_geometric_lines(l_feats_cat)
 
 
-        x1 = self.act(self.sp1(out1))
+        x1 = self.act(self.sp1(lines_ga))
         x2 = self.act(self.sp2(x1))
-        x3 = self.sp3(x2)
-
-        x1 = self.act(self.sp1(out2))
-        x2 = self.act(self.sp2(x1))
-        x4 = self.sp3(x2)
-
-
-        out = torch.cat([self.pooling(x3), self.pooling(x4)], dim = 1)
-
-        out = self.pose_mer(out)
-
+        x3 = self.act(self.sp3(x2))
+        x4 = self.act(self.sp4(x3))
+        x5 = self.act(self.sp5(x4))
+        x6 = self.act(self.sp6(x5))
+        out = self.sp6(x6)
 
         pose = self.geometric_to_tensor_poses(out)
-        pose = pose.reshape((-1, 8))
+        pose = pose.squeeze(dim = 1)
+        pose = self.create_pose(pose)
        
         return pose
 
