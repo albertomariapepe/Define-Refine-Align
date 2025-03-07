@@ -1,6 +1,8 @@
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
+from math import sqrt
 from torchga.torchga import GeometricAlgebra
 from torchga.layers import TensorToGeometric, GeometricToTensor
 
@@ -55,29 +57,116 @@ class RegressionLoss(torch.nn.Module):
         return loss, R_loss, t_loss
 
 
+
 class MotorLoss(torch.nn.Module):
     def __init__(self):
         super(MotorLoss, self).__init__()
         self.ga = GeometricAlgebra([1, 1, 1, 1])
         self.even_indices = torch.tensor([0, 5, 6, 7, 8, 9, 10, 15])
+        self.scalar_index = torch.tensor([0])
+
+        self.vector_indices = torch.tensor([1, 2, 3])
+        self.origin_index = torch.tensor([4])
+        self.mse =  nn.MSELoss()
+        self.mae = nn.L1Loss()
+    
+    def compute_rotor(self, M, t, lambd = 5):
+
+        #M = self.ga.from_tensor(M, blade_indices=self.even_indices)
+        t = t.squeeze(2)
+
+        t = self.ga.from_tensor(t, blade_indices=self.vector_indices)
+
+        origin = torch.ones(M.shape[0], 1)
+        origin = origin.to(M.device)
+        origin = self.ga.from_tensor(origin, blade_indices=self.origin_index)
 
 
+        lambd = lambd*torch.ones(M.shape[0], 1)
+        lambd = lambd.to(M.device)
+        lambd = self.ga.from_tensor(lambd, blade_indices=self.scalar_index)
+
+
+
+        Minv = self.ga.reversion(M)
+
+        T = self.ga.geom_prod(self.ga.geom_prod(M, origin), Minv)
+
+        #print("T:", T, flush = True)
+
+        alpha = (2*lambd/(lambd**2 + t**2)) + 1e-15
+        alpha = alpha[:, 0]
+        beta  =  (lambd**2 - t**2)/(lambd**2 + t**2) + 1e-15
+        beta = beta[:, 0]
+        beta = beta.view(-1, 1)
+        beta = self.ga.from_tensor(beta, blade_indices=self.scalar_index)
+
+        #print(alpha.shape, flush = True)
+        alpha = alpha.unsqueeze(-1)
+
+        t0 = (T - self.ga.geom_prod(beta, origin))/alpha
+
+        #print("t0: ", t0, flush = True)
+
+        Tup = (lambd + self.ga.geom_prod(t0, origin))
+
+        #print("Tup: ", Tup, flush = True)
+
+
+        denominator = torch.sqrt((lambd**2 + t0**2)[:,0])
+        denominator = denominator + 1e-15
+        denominator = denominator.unsqueeze(-1)
+
+        #denominator = self.ga.from_tensor(denominator, blade_indices=self.scalar_index)
+
+        Tup = Tup / denominator
+        #print("Tup: ", Tup, flush = True)
+
+        Tupinv = self.ga.reversion(Tup)
+
+        R = self.ga.geom_prod(Tupinv, M)
+
+        return R, t0.view(-1)
 
     def forward(self, M_gt, M):
-        print(M_gt[0], flush = True)
-        print(M[0], flush = True)
-        print("***")
 
-        M = self.ga.from_tensor(M, blade_indices=self.even_indices)
+    
+        #mse_loss = self.mse(M_gt, M)
+        #mse_loss = torch.nn.functional.smooth_l1_loss(M_gt, M, beta = 0.1)
+        mse_loss = self.mse(M_gt, M) 
+
+   
         M_gt = self.ga.from_tensor(M_gt, blade_indices=self.even_indices)
+        M = self.ga.from_tensor(M, blade_indices=self.even_indices)
+ 
+        Minv = self.ga.reversion(M)
+        norm_loss = torch.mean(torch.abs(1 - (self.ga.geom_prod(M_gt, Minv)[:,0])))
 
-        print(M[0])
+        absolute_error = torch.abs(M_gt - M)
+        relative_loss = absolute_error / (torch.abs(M_gt) + 1e-6)
+        #mse_loss = torch.mean(relative_loss)
+    
+        '''
+        #print(self.ga.geom_prod(M_gt, Minv)[0,:], flush = True)
+        #print("****", flush = True)
 
-        Minv = self.ga.inverse(M)
+       
+        R, t0 = self.compute_rotor(M, t_gt)
+        R_gt, t_gt0 = self.compute_rotor(M_gt, t_gt)
 
-        loss = 1 - self.ga.geom_prod(M_gt, Minv)
-        
-        return loss
+
+        #print((self.ga.geom_prod(M_gt, Minv)), flush = True)
+        #print(R_gt, flush = True)
+        #print(R, flush = True)
+ 
+
+        Rinv = self.ga.reversion(R) 
+        loss_angular = torch.mean(torch.acos(torch.clamp(self.ga.geom_prod(R_gt, Rinv)[:, 0], -1, 1)))
+        loss_translational = self.mse(t_gt0, t0)
+        '''
+    
+
+        return mse_loss #+ norm_loss
 
 
 def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-6):

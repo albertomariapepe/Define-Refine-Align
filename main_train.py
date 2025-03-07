@@ -28,8 +28,8 @@ from trainer_lines4D import G4LinesTrainer
 
 def main(configs):
 
-    train_loader = DataLoader(Lines4D_precompute( phase='train', config = configs), batch_size=configs.train_batch_size, shuffle=True, drop_last=True, num_workers=6)
-    val_loader = DataLoader(Lines4D_precompute(phase='valid', config = configs), batch_size=1, shuffle=False, drop_last=True, num_workers=1)
+    train_loader = DataLoader(Lines4D_precompute( phase='train', config = configs), batch_size=configs.train_batch_size, shuffle=True, drop_last=False, num_workers=6)
+    val_loader = DataLoader(Lines4D_precompute(phase='valid', config = configs), batch_size=1, shuffle=False, drop_last=False, num_workers=1)
 
     trainer = G4LinesTrainer(configs, train_loader, val_loader)
     # train
@@ -43,8 +43,8 @@ if __name__ == '__main__':
     """You can change the configurations here or in the file config.py"""
 
     # select dataset
-    configs.dataset = "structured3D"
-    #configs.dataset = "semantic3D"
+    #configs.dataset = "structured3D"
+    configs.dataset = "semantic3D"
 
     # dataset path
     configs.data_dir = "./dataset"
@@ -53,13 +53,21 @@ if __name__ == '__main__':
     configs.gpu_inds = 0
 
     # This is a model number, set it to whatever you want
-    configs.model_nb = str(date.today())
+    #configs.model_nb = str(date.today())
+    configs.model_nb = "lambda"+str(200) +"bs8_largererrr"
 
     # training batch size
-    configs.train_batch_size = 12
+    configs.train_batch_size = 8
 
     # learning rate
     configs.train_lr = 1e-4
+
+    configs.train_weight_decay = 0
+    configs.net_batchnorm = False
+    #configs.net_nchannel = 128*6
+    configs.net_nchannel = 32*6
+    #configs.exp_gamma = 1
+
 
     dconfig = vars(configs)
 

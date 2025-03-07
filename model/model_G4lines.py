@@ -5,7 +5,11 @@ from copy import deepcopy
 import math
 from torchga.torchga import GeometricAlgebra
 from torchga.layers import TensorToGeometric, GeometricToTensor, GeometricProductDense, GeometricSandwichProductDense, GeometricProductConv1D
-
+from cgenn.algebra.cliffordalgebra import CliffordAlgebra
+from cgenn.models.modules.gp import SteerableGeometricProductLayer
+from cgenn.models.modules.linear import MVLinear
+from cgenn.models.modules.mvlayernorm import MVLayerNorm
+from cgenn.models.modules.mvsilu import MVSiLU
 
 def knn(x, k):
     inner = -2 * torch.matmul(x.transpose(2, 1), x)
@@ -238,11 +242,8 @@ class FeatureExtractorGraph(nn.Module):
     self.config = config
 
     self.regress = nn.Conv1d(self.config['net_nchannel'], 1, kernel_size=1, bias=True)
-
     self.gnn = SpatialAttentionalGNN(self.config['net_nchannel'], self.config['GNN_layers'])
-
     self.final_proj = nn.Conv1d(self.config['net_nchannel'], self.config['net_nchannel'], kernel_size=1, bias=True)
-
     self.conv_in = conv_in_seq_direction_moment_knn(self.config['net_nchannel'])
 
   def forward(self, x, y):
@@ -347,6 +348,7 @@ class PluckerNetRegression(nn.Module):
         scalar = (ga.geom_prod(M, Minv))[:,0]
 
         M = M[:, columns_to_select]
+
         M = M / torch.sqrt(scalar.view(-1, 1) + 1e-8)
 
         return M.view([-1, 8])
@@ -365,13 +367,53 @@ class PluckerNetRegression(nn.Module):
         return pose
 
 
+class O4CGMLP(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.algebra = CliffordAlgebra((1.0, 1.0, 1.0, 1.0))
+
+        # Second block (256 -> 128)
+        self.linear2 = MVLinear(self.algebra, 32, 128, subspaces=False)
+        self.block2 = nn.Sequential(
+            MVSiLU(self.algebra, 128),
+            SteerableGeometricProductLayer(self.algebra, 128),
+            MVLayerNorm(self.algebra, 128),
+        )
+
+        # Third block (128 -> 40)
+        self.linear3 = MVLinear(self.algebra, 128, 40, subspaces=False)
+        self.block3 = nn.Sequential(
+            MVSiLU(self.algebra, 40),
+            SteerableGeometricProductLayer(self.algebra, 40),
+            MVLayerNorm(self.algebra, 40),
+        )
 
 
+        self.linear4 = MVLinear(self.algebra, 40, 1, subspaces=False)
+        self.block4 = nn.Sequential(
+            MVSiLU(self.algebra, 1),
+            SteerableGeometricProductLayer(self.algebra, 1),
+            MVLayerNorm(self.algebra, 1),
+        )
 
-class PoolingGA(torch.nn.Module):
+    def forward(self, x):
+     
+        x = self.linear2(x)
+        x = self.block2(x)
+        x = self.linear3(x)
+        x = self.block3(x)
+        x = self.linear4(x)
+        x = self.block4(x)
+
+
+        return x
+
+
+    
+class PoolingFinal(torch.nn.Module):
     def __init__(self, pool_type='max'):
             self.pool_type = pool_type
-            super(PoolingGA, self).__init__()
+            super(PoolingFinal, self).__init__()
 
     def forward(self, input):
         if self.pool_type == 'max':
@@ -388,8 +430,11 @@ class G4LinesRegression(nn.Module):
         self.in_channel = 6
     
         self.pooling = Pooling('max')
+        self.pooling_final = PoolingFinal('avg')
 
         self.ga = GeometricAlgebra([1,1,1,1])
+        self.algebra = CliffordAlgebra((1.0, 1.0, 1.0, 1.0))
+
         self.biv_indices = torch.tensor([5, 6, 7, 8, 9, 10])
         self.even_indices = torch.tensor([0, 5, 6, 7, 8, 9, 10, 15])
         self.all = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
@@ -399,42 +444,49 @@ class G4LinesRegression(nn.Module):
 
         self.FeatureExtractor = FeatureExtractorGraph(self.config, self.in_channel)
 
-        self.do1 = nn.Dropout(p = 0.2)
-        self.do2 = nn.Dropout(p = 0.2)
-        self.do3 = nn.Dropout(p = 0.2)
 
+        self.o4mlp = O4CGMLP()
 
-        self.sp1 = GeometricSandwichProductDense(self.ga, 128*2, 128*2, 
+        self.sp1 = GeometricSandwichProductDense(self.ga, 32, 128, 
                                                  activation = None,
                                                  blade_indices_kernel=self.even_indices, 
                                                  blade_indices_bias=self.even_indices)
-        self.sp2 = GeometricSandwichProductDense(self.ga, 128*2, 128, 
+        self.sp2 = GeometricSandwichProductDense(self.ga, 128, 40, 
                                                  activation = None,
                                                  blade_indices_kernel=self.even_indices, 
                                                  blade_indices_bias=self.even_indices)
-        self.sp3 = GeometricSandwichProductDense(self.ga, 128, 128, 
+    
+        self.sp3 = GeometricSandwichProductDense(self.ga, 40, 1, 
                                                  activation = None,
                                                  blade_indices_kernel=self.even_indices, 
                                                  blade_indices_bias=self.even_indices)
-        self.sp3 = GeometricSandwichProductDense(self.ga, 128, 64, 
-                                                 activation = None,
-                                                 blade_indices_kernel=self.even_indices, 
-                                                 blade_indices_bias=self.even_indices)
-        self.sp4 = GeometricSandwichProductDense(self.ga, 64, 64,
-                                                 activation = None,
-                                                 blade_indices_kernel=self.even_indices, 
-                                                 blade_indices_bias=self.even_indices)
-        self.sp5 = GeometricSandwichProductDense(self.ga, 64, 32,
-                                                 activation = None, 
-                                                 blade_indices_kernel=self.even_indices, 
-                                                 blade_indices_bias=self.even_indices)
-        self.sp6 = GeometricSandwichProductDense(self.ga, 32, 1,
-                                                 activation = None, 
-                                                 blade_indices_kernel=self.even_indices, 
-                                                 blade_indices_bias=self.even_indices)
-
+        
+    
 
         self.act = nn.Identity()
+        self.act1 = MVSiLU(self.algebra, 128)
+        self.act2 = MVSiLU(self.algebra, 40)
+        self.act3 = MVSiLU(self.algebra, 32)
+
+
+
+    def create_lines(self, l):
+        # Normalize the motor
+
+        ga = GeometricAlgebra([1, 1, 1, 1])
+        columns_to_select = [5, 6, 7, 8, 9, 10]
+        biv_indices = torch.tensor(columns_to_select)
+        
+
+        l = ga.from_tensor(l, blade_indices=biv_indices)
+        linv = ga.reversion(l)
+
+        scalar = (ga.geom_prod(l, linv))[:,:,0]
+
+        l = l[:, :, columns_to_select]
+        l = l / torch.sqrt(scalar.view(scalar.shape[0], scalar.shape[1], 1) + 1e-8)
+
+        return l.view(scalar.shape[0], scalar.shape[1], 6)
     
     def create_pose(self, M):
         # Normalize the motor
@@ -450,6 +502,7 @@ class G4LinesRegression(nn.Module):
         scalar = (ga.geom_prod(M, Minv))[:,0]
 
         M = M[:, columns_to_select]
+
         M = M / torch.sqrt(scalar.view(-1, 1) + 1e-8)
 
         return M.view([-1, 8])
@@ -461,26 +514,44 @@ class G4LinesRegression(nn.Module):
 
         #reshape in B x N x c_in x 6
 
+
         l1_feats, l2_feats, _, _ = self.FeatureExtractor(lines1.transpose(-2, -1), lines2.transpose(-2, -1))
         l1_feats, l2_feats = self.pooling(l1_feats), self.pooling(l2_feats)
-        l_feats_cat = torch.cat([l1_feats, l2_feats], dim=1)
+        #l_feats_cat = torch.cat([l1_feats, l2_feats], dim=1)
+        #l_feats_cat = 0.5*(l1_feats + l2_feats)
 
         #l_feats_cat = l_feats_cat.unsqueeze(2)
 
-        l_feats_cat = l_feats_cat.reshape((-1, 128*2, 6))
-        lines_ga = self.tensor_to_geometric_lines(l_feats_cat)
+        l1_feats= l1_feats.reshape((-1, 32, 6))
+        l2_feats= l2_feats.reshape((-1, 32, 6))
 
 
-        x1 = self.act(self.sp1(lines_ga))
-        x2 = self.act(self.sp2(x1))
-        x3 = self.act(self.sp3(x2))
-        x4 = self.act(self.sp4(x3))
-        x5 = self.act(self.sp5(x4))
-        x6 = self.act(self.sp6(x5))
-        out = self.sp6(x6)
+        l1 = self.create_lines(l1_feats)
+        l2 = self.create_lines(l2_feats)
+
+
+        l1 = self.tensor_to_geometric_lines(l1)
+        l2 = self.tensor_to_geometric_lines(l2)
+
+
+        x1 = self.act(self.sp1(l1))
+        x2 = self.act(self.sp2(x1)) 
+        out_sp1 = self.act(self.sp3(x2))
+
+        x3 = self.act(self.sp1(l2)) + x1
+        x4 = self.act(self.sp2(x3)) + x2
+        out_sp2 = self.act(self.sp3(x4))
+
+        
+
+        out_eq1 = self.o4mlp(l1)
+        out_eq2 = self.o4mlp(l2)
+          
+        out = torch.cat([out_sp1, out_eq1, out_sp2, out_eq2], dim=1)
+        out = self.pooling_final(out)
 
         pose = self.geometric_to_tensor_poses(out)
-        pose = pose.squeeze(dim = 1)
+        #pose = pose.squeeze(dim = 1)
         pose = self.create_pose(pose)
        
         return pose

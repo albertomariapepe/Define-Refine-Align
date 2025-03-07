@@ -6,6 +6,9 @@ import pickle
 from clifford.g3c import *
 from math import sqrt
 import numpy as np
+import clifford as cf
+
+
 
 def load_data_plucker_pairs(config, dataset_split):
     """Main data loading routine"""
@@ -73,7 +76,6 @@ def plucker_to_points(plucker1):
     #print("SHAPES:", plucker1.shape, L1.shape, flush=True)
 
     #print(L1.shape, flush = True)
-
     L_norm_sq = (np.sqrt(np.sum(L1**2, axis=1))).reshape(-1, 1)  # shape (A, 1) for broadcasting
     
     # Compute a point P1 on the line
@@ -89,6 +91,7 @@ def plucker_to_points(plucker1):
 
 #From Euclidean to 1D Up CGA. function implementing the Eq. 10 (X = f(x))
 def up1D(point, lambd = 200):
+
     x = point[:,0]*e1 + point[:,1]*e2 + point[:,2]*e3
     Y = (2*lambd / (lambd**2 + x**2))*x + ((lambd**2-x**2)/(lambd**2 + x**2))*e4
     return Y
@@ -111,13 +114,16 @@ def form_4Dlines(P, Q):
         #normalize the line
         l = l / sqrt((l * ~l)[0])
 
+        #print(l**2, flush = True)
+        #print("****")
+
         #extract bivector coefficients
-        p.append(l[6])
-        q.append(l[7])
-        r.append(l[8])
-        s.append(l[10])
-        t.append(l[11])
-        u.append(l[13])
+        p.append(round(l[6], 8))
+        q.append(round(l[7], 8))
+        r.append(round(l[8], 8))
+        s.append(round(l[10], 8))
+        t.append(round(l[11], 8))
+        u.append(round(l[13], 8))
 
 
     p = np.asarray(p).reshape(-1, 1)
@@ -140,10 +146,11 @@ def form_4Dlines(P, Q):
 def form_motors(R, t, lambd = 200):
 
     #assign translation vector components to a basis
+
     x = t[0]*e1 + t[1]*e2 + t[2]*e3
 
     #translation rotor in G4
-    T = (lambd + x*e4)/(sqrt(lambd**2 + x**2))
+    T = (lambd + x*e4)/(sqrt((lambd**2 + x**2)[0]))
 
     #assign rotation matrix components to a basis
     B = [R[0,0]*e1 + R[1,0]*e2 + R[2,0]*e3,
@@ -157,29 +164,38 @@ def form_motors(R, t, lambd = 200):
     R = 1+sum([A[k]*B[k] for k in range(3)])
     R = R/abs(R)
 
-    M = R*T
+    M = T*R
 
     M = M / sqrt((M * ~M)[0])
 
-    #print(M, flush = True)
-    #print(M[0], flush = True)
+
 
     m = []
+    m.append(round(M[0][0], 8))
+    m.append(round(M[0][6], 8))
+    m.append(round(M[0][7], 8))
+    m.append(round(M[0][8], 8))
+    m.append(round(M[0][10], 8))
+    m.append(round(M[0][11], 8))
+    m.append(round(M[0][13], 8))
+    m.append(round(M[0][26], 8))
 
-    m.append(M[0][0])
-    m.append(M[0][6])
-    m.append(M[0][7])
-    m.append(M[0][8])
-    m.append(M[0][10])
-    m.append(M[0][11])
-    m.append(M[0][13])
-    m.append(M[0][26])
+    #print(m, flush = True)
 
     #print(m)
 
 
 
     return np.asarray(m).reshape(-1, 1)
+
+
+maxX = 1000
+maxY = 1000
+maxZ = 1000
+
+minX = 1000
+minY = 1000
+minZ = 1000
 
 
 # This is loading the pre_dumped dataset
@@ -198,6 +214,8 @@ class Lines4D_precompute(Dataset):
         R_gt = self.data["R_gt"][index]
         t_gt = self.data["t_gt"][index]
 
+        
+
         nb_lines1 = plucker1.shape[0]
         nb_lines2 = plucker2.shape[0]
 
@@ -207,12 +225,10 @@ class Lines4D_precompute(Dataset):
         p2, q2 = plucker_to_points(plucker2)
 
         #print(p1.shape, q1.shape, flush = True)
-
         P1 = up1D(p1)
         Q1 = up1D(q1)
 
         #print(P1.shape, Q1.shape,  flush = True)
-
         P2 = up1D(p2)
         Q2 = up1D(q2)
 
@@ -220,13 +236,9 @@ class Lines4D_precompute(Dataset):
         L2 = form_4Dlines(P2, Q2)
 
         #print(L1.shape, L2.shape, flush = True)
-
-
         M_gt = form_motors(R_gt, t_gt)
 
         #print(M_gt.shape)
-
-        #print(L1)
         #print(plucker1)
 
 
@@ -234,7 +246,7 @@ class Lines4D_precompute(Dataset):
         matches[matches_ind[0,:], matches_ind[1,:]] = 1.0
 
 
-        return matches.astype('float32'), L1.astype('float32'), L2.astype('float32'), M_gt.astype('float32'), R_gt.astype('float32'), t_gt.astype('float32')
+        return matches.astype('float32'), L1.astype('float32'), L2.astype('float32'), M_gt.astype('float32'), R_gt.astype('float32'), t_gt.astype('float32'), plucker1.astype('float32'), plucker2.astype('float')
 
     def __len__(self):
         return len(self.data["t_gt"])

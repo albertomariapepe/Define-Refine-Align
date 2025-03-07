@@ -196,6 +196,7 @@ True
 from __future__ import division, print_function
 import math
 from clifford.g3c import *
+import clifford as cf
 import numpy
 from math import sqrt
 from numpy import array
@@ -203,6 +204,7 @@ from numpy import array
 __version__ = '2015.07.18'
 __docformat__ = 'restructuredtext en'
 __all__ = ()
+
 
 
 def identity_matrix():
@@ -1363,7 +1365,7 @@ def quaternion_from_matrix(matrix, isprecise=False):
         numpy.negative(q, q)
     return q
 
-def project_G4_to_G3(M, lambd = 200):
+def project_G4_to_G3(M, t_gt, lambd = 200):
 
     #print(M.shape, flush = True)
 
@@ -1384,21 +1386,42 @@ def project_G4_to_G3(M, lambd = 200):
     M = M / sqrt((scalar+1e-8))
 
     #predicted and real displacement vector \hat{D}, D in spherical space
+
+    #print(t_gt.shape, flush = True)
+
+    t_gt = t_gt.squeeze(2)
+    x = t_gt[:,0]*e1 + t_gt[:,1]*e2 + t_gt[:,2]*e3
+
+    #print(x, flush = True)
+    #print("____", flush = True)
     T = M* e4 * ~M
     t = (lambd/(1 + T*e4))*((T|e1)*e1 + (T|e2)*e2 + (T|e3)*e3)
 
+    
     t_est = array([t[1], t[2], t[3]]).reshape(3)
 
 
-    R = ~T * M
+    Tup= (lambd + t*e4)/(sqrt((lambd**2 + t**2)[0]))
 
+    Rot = ~Tup * M
+
+  
+
+    Rot[8] = 0
+    Rot[11] = 0
+    Rot[12] = 0
+    Rot[13] = 0
+    Rot[26] = 0
+
+    #print(Rot, flush = True)
+ 
     A = [e1,e2,e3]          # initial ortho-normal frame
-    B = [R*a*~R for a in A] # resultant frame after rotation
+    B = [Rot*a*~Rot for a in A] # resultant frame after rotation
 
     R = [float(b|a) for b in B for a in A] # you need float() due to bug in clifford
     R_est = array(R).reshape(3,3)
 
-    return R_est, t_est
+    return R_est, t_est, Rot, t
 
 def quaternion_multiply(quaternion1, quaternion0):
     """Return multiplication of two quaternions.

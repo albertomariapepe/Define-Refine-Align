@@ -212,6 +212,8 @@ class GeometricSandwichProductDense(GeometricProductDense):
 
         if activation == "relu":
             self.activation = nn.ReLU()
+        else:
+            self.activation = nn.Identity()
 
         # Initialize kernel and bias (we can use Glorot uniform and zeros for bias)
         self.kernel_initializer = kernel_initializer
