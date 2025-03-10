@@ -1,4 +1,4 @@
-# 🟩 Define, 🟦 Refine, 🟪 Align (DRA)
+# 🟩 Define, 🟦 Refine, 🟪 Align (DRA): Correspondence-free 3D Line Alignment with Attentional, Equivariant and Rotational Layers
 
 ## Overview 📌
 Define, Refine, Align (DRA) is a streamlined pipeline for aligning unordered 3D line sets **without the need for prior correspondence evaluation**. By leveraging **Geometric Algebra** $G(4,0,0)$, DRA efficiently estimates relative poses through hypercomplex networks, ensuring robust and real-time 3D line alignment.
